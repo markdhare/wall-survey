@@ -61,10 +61,11 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
         self.toolbar = toolbar
-        actions = [("New", self.new_project), ("Open", self.open_project), ("Save", self.save_project), ("Import grid CSV", self.import_grid), ("Add reference", self.add_reference), ("Add loose run", self.add_loose_runs), ("Map a run", self.add_location_run), ("Export CSV", self.export_csv), ("Export heatmap", self.export_heatmap)]
+        actions = [("New", self.new_project), ("Open", self.open_project), ("Save", self.save_project), ("Import grid CSV", self.import_grid), ("Add reference", self.add_reference), ("Add loose run", self.add_loose_runs), ("Map selected runs", self.map_selected_runs), ("Import mapped run", self.add_location_run), ("Export CSV", self.export_csv), ("Export heatmap", self.export_heatmap)]
         for index, (text, slot) in enumerate(actions):
-            if index in {3, 7}: toolbar.addSeparator()
+            if index in {3, 8}: toolbar.addSeparator()
             action = QAction(text, self); action.triggered.connect(slot); toolbar.addAction(action)
+            if text == "Map selected runs": self.map_selected_action = action
 
     def _build_ui(self):
         outer = QWidget(); layout = QVBoxLayout(outer); layout.setContentsMargins(8, 8, 8, 8)
@@ -115,9 +116,10 @@ class MainWindow(QMainWindow):
         self.frequency.valueChanged.connect(self.refresh_results); self.bandwidth.valueChanged.connect(self.refresh_results)
         self.auto_scale.toggled.connect(self.refresh_results); self.scale_min.valueChanged.connect(self.refresh_results); self.scale_max.valueChanged.connect(self.refresh_results)
         self.location_table.itemSelectionChanged.connect(self.refresh_trace)
-        self.reference_table.itemSelectionChanged.connect(self.refresh_trace); self.loose_table.itemSelectionChanged.connect(self.refresh_trace); self.data_tabs.currentChanged.connect(self.refresh_trace)
+        self.reference_table.itemSelectionChanged.connect(self.refresh_trace); self.loose_table.itemSelectionChanged.connect(self.refresh_trace); self.loose_table.itemSelectionChanged.connect(self._update_run_actions); self.data_tabs.currentChanged.connect(self.refresh_trace); self.data_tabs.currentChanged.connect(self._update_run_actions)
         self.plot_tabs.currentChanged.connect(self._update_control_states)
         self._update_control_states()
+        self._update_run_actions()
 
     def _update_control_states(self):
         comparison = Comparison(self.comparison.currentText())
@@ -218,6 +220,44 @@ class MainWindow(QMainWindow):
             self.plot_tabs.setCurrentIndex(0); self.statusBar().showMessage(f"Added {len(runs)} off-grid run(s) to Run Lab", 7000)
         except Exception as exc: self._error("Could not import run", exc)
 
+    def map_selected_runs(self):
+        rows = sorted({item.row() for item in self.loose_table.selectedItems()})
+        if not rows:
+            QMessageBox.information(self, "Map Run Lab runs", "Select one or more Run Lab rows first.")
+            return
+        runs = [self.project.loose_runs[row] for row in rows]
+        dialog = LocationDialog(self)
+        self._configure_location_dialog(dialog)
+        if dialog.exec() != QDialog.Accepted: return
+        selected_id = dialog.label.currentData(); entered_label = dialog.label.currentText().strip()
+        existing = next((location for location in self.project.locations if location.id == selected_id and location.label == entered_label), None)
+        if existing:
+            existing.runs.extend(runs); location = existing
+        else:
+            location = Location(label=entered_label or f"P{len(self.project.locations) + 1}", x_m=dialog.x.value() / 100, y_m=dialog.y.value() / 100, runs=list(runs))
+            self.project.locations.append(location)
+        moved_ids = {run.id for run in runs}; self.project.loose_runs = [run for run in self.project.loose_runs if run.id not in moved_ids]
+        if self.project.active_reference_id in moved_ids: self.project.active_reference_id = None
+        self.refresh(); self.data_tabs.setCurrentIndex(1); self.plot_tabs.setCurrentIndex(1); self.location_table.selectRow(self.project.locations.index(location))
+        self.statusBar().showMessage(f"Moved {len(runs)} Run Lab run(s) to map location '{location.label}'", 7000)
+
+    def _update_run_actions(self):
+        if hasattr(self, "map_selected_action"):
+            self.map_selected_action.setEnabled(bool(self.loose_table.selectedItems()) and self.data_tabs.currentIndex() == 0)
+
+    def _configure_location_dialog(self, dialog: LocationDialog):
+        for location in self.project.locations: dialog.label.addItem(location.label, location.id)
+
+        def update_coordinates():
+            location_id = dialog.label.currentData(); text = dialog.label.currentText()
+            existing = next((item for item in self.project.locations if item.id == location_id and item.label == text), None)
+            if existing:
+                dialog.x.setValue(existing.x_m * 100); dialog.y.setValue(existing.y_m * 100)
+            dialog.x.setEnabled(existing is None); dialog.y.setEnabled(existing is None)
+
+        dialog.label.currentIndexChanged.connect(update_coordinates); dialog.label.editTextChanged.connect(update_coordinates)
+        update_coordinates()
+
     def import_grid(self):
         path, _ = QFileDialog.getOpenFileName(self, "Import coordinate grid", "", "CSV (*.csv)")
         if not path: return
@@ -240,7 +280,7 @@ class MainWindow(QMainWindow):
         files, _ = QFileDialog.getOpenFileNames(self, "Add measurement runs", "", "Touchstone (*.s2p *.s1p)")
         if not files: return
         dialog = LocationDialog(self)
-        for loc in self.project.locations: dialog.label.addItem(loc.label, loc.id)
+        self._configure_location_dialog(dialog)
         if dialog.exec() != QDialog.Accepted: return
         try:
             runs = [Run(label=Path(path).stem, source=path) for path in files]

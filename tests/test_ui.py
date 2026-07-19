@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pyqtgraph as pg
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QPaintDevice
 from PySide6.QtWidgets import QApplication
 
@@ -16,7 +17,7 @@ from wall_survey.metrics import Comparison
 from wall_survey.acquisition.base import AcquisitionResult, SweepSettings, VnaIdentity
 from wall_survey.model import Location, Run
 from wall_survey.touchstone import read_touchstone
-from wall_survey.ui import MainWindow
+from wall_survey.ui import LocationDialog, MainWindow
 
 
 EXAMPLES = Path(__file__).parents[1] / "example_s2p_files"
@@ -99,4 +100,23 @@ def test_preserved_capture_routes_to_next_empty_grid_location():
     assert location.runs[0].label == "Guided run"
     assert window.data_tabs.currentIndex() == 1
     assert "R1C1" in window.acquisition.target_hint.text() or "No empty" in window.acquisition.target_hint.text()
+    window.close()
+
+
+def test_selected_run_lab_run_can_be_moved_to_new_map_location():
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    run = Run(label="Exploratory", source=str(EXAMPLES / "example_baseline.s2p"))
+    window.project.loose_runs.append(run); window.refresh(); window.loose_table.selectRow(0)
+
+    def complete_dialog():
+        dialog = next(widget for widget in app.topLevelWidgets() if isinstance(widget, LocationDialog))
+        dialog.label.setEditText("Mapped later"); dialog.x.setValue(25); dialog.y.setValue(80); dialog.accept()
+
+    QTimer.singleShot(0, complete_dialog)
+    window.map_selected_runs()
+    assert not window.project.loose_runs
+    assert window.project.locations[0].runs[0].id == run.id
+    assert window.project.locations[0].x_m == 0.25
+    assert window.project.locations[0].y_m == 0.8
     window.close()
