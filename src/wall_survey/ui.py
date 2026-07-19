@@ -63,7 +63,9 @@ class MainWindow(QMainWindow):
         self.guidance = QLabel("Start anywhere: add loose runs for quick comparison, add references for baselines, or import a grid for wall mapping.")
         self.guidance.setObjectName("guidance"); layout.addWidget(self.guidance)
         controls = QHBoxLayout()
-        self.metric = QComboBox(); self.metric.addItems([item.value for item in Metric])
+        # Do not call this ``self.metric``: QPaintDevice.metric() is a virtual
+        # method that Qt calls internally while painting every widget.
+        self.metric_combo = QComboBox(); self.metric_combo.addItems([item.value for item in Metric])
         self.comparison = QComboBox(); self.comparison.addItems([item.value for item in Comparison])
         self.reference = QComboBox()
         self.frequency = QDoubleSpinBox(); self.frequency.setRange(0.001, 100_000); self.frequency.setValue(900); self.frequency.setDecimals(3); self.frequency.setSuffix(" MHz")
@@ -71,7 +73,7 @@ class MainWindow(QMainWindow):
         self.auto_scale = QCheckBox("Auto scale"); self.auto_scale.setChecked(True)
         self.scale_min = QDoubleSpinBox(); self.scale_min.setRange(-1e12, 1e12); self.scale_min.setDecimals(4); self.scale_min.setValue(-60)
         self.scale_max = QDoubleSpinBox(); self.scale_max.setRange(-1e12, 1e12); self.scale_max.setDecimals(4); self.scale_max.setValue(0)
-        for label, widget in [("Metric", self.metric), ("Comparison", self.comparison), ("Baseline", self.reference), ("Center", self.frequency), ("Bandwidth (0 = point)", self.bandwidth)]:
+        for label, widget in [("Metric", self.metric_combo), ("Comparison", self.comparison), ("Baseline", self.reference), ("Center", self.frequency), ("Bandwidth (0 = point)", self.bandwidth)]:
             controls.addWidget(QLabel(label)); controls.addWidget(widget)
         controls.addStretch()
         layout.addLayout(controls)
@@ -92,7 +94,7 @@ class MainWindow(QMainWindow):
         self.plot_tabs.addTab(self.trace_plot, "Run comparison"); self.plot_tabs.addTab(self.heat_plot, "Wall heatmap")
         splitter.addWidget(self.plot_tabs); splitter.setSizes([520, 850]); layout.addWidget(splitter)
         self.setCentralWidget(outer); self.setStatusBar(QStatusBar())
-        for widget in (self.metric, self.comparison, self.reference): widget.currentIndexChanged.connect(self.refresh_results)
+        for widget in (self.metric_combo, self.comparison, self.reference): widget.currentIndexChanged.connect(self.refresh_results)
         self.frequency.valueChanged.connect(self.refresh_results); self.bandwidth.valueChanged.connect(self.refresh_results)
         self.auto_scale.toggled.connect(self.refresh_results); self.scale_min.valueChanged.connect(self.refresh_results); self.scale_max.valueChanged.connect(self.refresh_results)
         self.location_table.itemSelectionChanged.connect(self.refresh_trace)
@@ -116,7 +118,7 @@ class MainWindow(QMainWindow):
         pg.setConfigOption("background", "#10171e"); pg.setConfigOption("foreground", "#c7dae5")
 
     def settings(self) -> AnalysisSettings:
-        return AnalysisSettings(Metric(self.metric.currentText()), Comparison(self.comparison.currentText()), self.frequency.value() * 1e6, self.bandwidth.value() * 1e6, self.project.parameter)
+        return AnalysisSettings(Metric(self.metric_combo.currentText()), Comparison(self.comparison.currentText()), self.frequency.value() * 1e6, self.bandwidth.value() * 1e6, self.project.parameter)
 
     def network(self, run: Run) -> NetworkData:
         if run.id not in self.network_cache: self.network_cache[run.id] = read_touchstone(run.source)
