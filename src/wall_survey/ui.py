@@ -20,6 +20,7 @@ from .metrics import AnalysisSettings, Comparison, Metric, analyze, trace_series
 from .model import Location, Reference, Run, SurveyProject
 from .project_io import load_project, save_project
 from .touchstone import NetworkData, read_touchstone
+from .acquisition_ui import AcquisitionDock
 
 
 class LocationDialog(QDialog):
@@ -49,6 +50,9 @@ class MainWindow(QMainWindow):
         self.resize(1400, 850)
         self._build_actions()
         self._build_ui()
+        self.acquisition = AcquisitionDock(self); self.addDockWidget(Qt.RightDockWidgetArea, self.acquisition)
+        self.acquisition.capture_ready.connect(self.route_capture)
+        self.toolbar.addSeparator(); self.toolbar.addAction(self.acquisition.toggleViewAction())
         self._apply_style()
         self.refresh()
 
@@ -56,6 +60,7 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Project")
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
+        self.toolbar = toolbar
         actions = [("New", self.new_project), ("Open", self.open_project), ("Save", self.save_project), ("Import grid CSV", self.import_grid), ("Add reference", self.add_reference), ("Add loose run", self.add_loose_runs), ("Map a run", self.add_location_run), ("Export CSV", self.export_csv), ("Export heatmap", self.export_heatmap)]
         for index, (text, slot) in enumerate(actions):
             if index in {3, 7}: toolbar.addSeparator()
@@ -143,6 +148,17 @@ class MainWindow(QMainWindow):
             QComboBox, QDoubleSpinBox { background: #1b2934; border: 1px solid #3b566a; border-radius: 3px; padding: 4px; }
             QLabel#guidance { background: #153746; color: #bdeeff; border-left: 4px solid #41bad7; padding: 9px; font-size: 13px; }
             QStatusBar { background: #18232e; color: #9dc5d6; }
+            QDockWidget { color: #dce8f2; font-weight: 600; }
+            QDockWidget::title { background: #21313e; padding: 7px; }
+            QGroupBox { border: 1px solid #30485a; border-radius: 4px; margin-top: 9px; padding-top: 8px; font-weight: 600; }
+            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: #9ed9ec; }
+            QLineEdit, QSpinBox { background: #1b2934; border: 1px solid #3b566a; border-radius: 3px; padding: 4px; }
+            QPushButton { background: #243646; border: 1px solid #355064; border-radius: 4px; padding: 6px 9px; }
+            QPushButton:hover { background: #2d5268; border-color: #48b9d6; }
+            QPushButton#captureButton { background: #176d78; border-color: #40c2d0; font-weight: 700; padding: 9px; }
+            QLabel#secondary { color: #8eacba; font-size: 11px; }
+            QLabel#quality[warning="true"], QLabel[error="true"] { color: #ff7373; }
+            QLabel#quality[warning="false"], QLabel[connected="true"] { color: #6ed69b; }
         """)
         pg.setConfigOption("background", "#10171e"); pg.setConfigOption("foreground", "#c7dae5")
 
@@ -253,7 +269,40 @@ class MainWindow(QMainWindow):
         for row, run in enumerate(self.project.loose_runs):
             net = self.network(run); result = analyze(net, settings, reference); span = f"{net.frequency_hz[0] / 1e6:.3f}–{net.frequency_hz[-1] / 1e6:.3f} MHz"
             for col, value in enumerate((run.label, Path(run.source).name, self._number(result), span)): self.loose_table.setItem(row, col, QTableWidgetItem(value))
+        if hasattr(self, "acquisition"): self.acquisition.set_targets(self.project.references, self.project.locations)
         self.refresh_results(); self.refresh_trace()
+
+    def route_capture(self, result, path: str, destination: str, target_id: str, label: str):
+        """Attach an already-preserved raw capture to the selected project area."""
+        run = Run(label=label or Path(path).stem, source=path)
+        routed = "Run Lab"
+        if destination == "new_reference":
+            name, accepted = QInputDialog.getText(self, "New reference group", "Reference condition name")
+            if accepted and name.strip():
+                reference = Reference(name=name.strip(), runs=[run]); self.project.references.append(reference); routed = f"reference '{reference.name}'"
+            else: self.project.loose_runs.append(run)
+        elif destination == "existing_reference":
+            reference = self.project.reference(target_id)
+            if reference: reference.runs.append(run); routed = f"reference '{reference.name}'"
+            else: self.project.loose_runs.append(run)
+        elif destination == "new_location":
+            dialog = LocationDialog(self)
+            if dialog.exec() == QDialog.Accepted:
+                location_label = dialog.label.currentText().strip() or f"P{len(self.project.locations) + 1}"
+                location = Location(label=location_label, x_m=dialog.x.value() / 100, y_m=dialog.y.value() / 100, runs=[run]); self.project.locations.append(location); routed = f"map location '{location.label}'"
+            else: self.project.loose_runs.append(run)
+        elif destination in {"existing_location", "next_empty"}:
+            location = next((item for item in self.project.locations if item.id == target_id), None)
+            if location: location.runs.append(run); routed = f"map location '{location.label}'"
+            else: self.project.loose_runs.append(run)
+        else:
+            self.project.loose_runs.append(run)
+        self.refresh()
+        if destination in {"new_reference", "existing_reference"} and routed != "Run Lab": self.data_tabs.setCurrentIndex(2)
+        elif destination in {"new_location", "existing_location", "next_empty"} and routed != "Run Lab": self.data_tabs.setCurrentIndex(1); self.plot_tabs.setCurrentIndex(1)
+        else: self.data_tabs.setCurrentIndex(0); self.plot_tabs.setCurrentIndex(0)
+        warning = f" · {len(result.quality_flags)} quality warning(s)" if result.quality_flags else ""
+        self.statusBar().showMessage(f"Capture preserved and routed to {routed}{warning}", 10000)
 
     def results(self):
         reference = self.reference_networks(); settings = self.settings(); rows = []
@@ -283,7 +332,7 @@ class MainWindow(QMainWindow):
             values = (loc.label, f"{loc.x_m * 100:.3f}", f"{loc.y_m * 100:.3f}", "" if loc.row is None else str(loc.row), "" if loc.column is None else str(loc.column), str(len(loc.runs)), self._number(mean), self._number(std))
             for col, value in enumerate(values): self.location_table.setItem(row, col, QTableWidgetItem(value))
             normalized = 0 if not np.isfinite(mean) else (mean - low) / (high - low)
-            spots.append({"pos": (loc.x_m * 100, loc.y_m * 100), "brush": pg.mkBrush(cmap.map(normalized)), "data": loc.label, "tip": f"{loc.label}: {self._number(mean)}"})
+            spots.append({"pos": (loc.x_m * 100, loc.y_m * 100), "brush": pg.mkBrush(cmap.map(normalized)), "data": {"label": loc.label, "value": mean}})
         self.heat_scatter.setData(spots)
         valid = [(loc.x_m * 100, loc.y_m * 100, value) for loc, value, _ in rows if np.isfinite(value)]
         if len(valid) >= 2:
@@ -357,3 +406,7 @@ class MainWindow(QMainWindow):
         return settings.metric.value
 
     def _error(self, title: str, exc: Exception): QMessageBox.critical(self, title, str(exc))
+
+    def closeEvent(self, event):
+        self.acquisition.shutdown()
+        super().closeEvent(event)

@@ -18,8 +18,19 @@ The package uses a `src` layout:
 - `project_io.py` serializes the model to a safe portable archive.
 - `ui.py` owns interaction, repeat aggregation, table rendering, traces, and the spatial scatter map.
 - `app.py` is the console entry point.
+- `acquisition/base.py` defines the protocol-neutral `VnaDevice`, identity, settings, and result contracts.
+- `acquisition/nanovna_h.py` implements the NanoVNA-H/H4 ASCII serial protocol and segmented complex averaging.
+- `acquisition/storage.py` writes raw S2P before updating the consolidated YAML capture log.
+- `acquisition/quality.py` supplies non-destructive sanity warnings.
+- `acquisition_ui.py` provides threaded connection/capture workers and the persistent routing dock.
 
 This split is the extension seam for acquisition hardware, automated naming, interpolation methods, or S11 analysis. Keep device I/O and GUI concerns out of the numerical modules.
+
+### Acquisition boundary
+
+New hardware families implement `VnaDevice` without leaking protocol details into Qt or the project model. A future NanoVNA V2 adapter should implement its binary register/FIFO protocol in a separate module and return the same `AcquisitionResult`. UI capture work runs through `QThreadPool`; the raw file is saved in the worker before `capture_ready` is emitted to the main window for routing.
+
+The NanoVNA-H driver uses contiguous 101-point segments, matching the tested firmware and NanoVNA-Saver convention; unsupported nearby point counts can otherwise be silently changed by the device. It controls each sweep, waits for acquisition, pauses before reading `frequencies`, `data 0`, and `data 1`, complex-averages repeats, and resumes in a `finally` block. S11 and S21 occupy their standard two-port matrix positions; unmeasured reverse terms remain zero. Serial access is guarded by a reentrant lock.
 
 ## Numerical conventions
 

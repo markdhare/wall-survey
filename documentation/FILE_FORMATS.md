@@ -55,6 +55,10 @@ All coordinates are SI metres. IDs are opaque and stable within a project. `sour
 
 YAML is used for all editable metadata. Raw RF data remains Touchstone and reports remain CSV/PNG, avoiding redundant sidecar files.
 
+## Direct-acquisition log
+
+Every raw capture directory contains one `capture_log.yaml` rather than one metadata sidecar per S2P file. It uses `format_version: 1` and a `captures` list. Each entry records the relative raw filename, label, intended destination, UTC acquisition time, device identity and calibration report, sweep settings, and any quality warnings. The S2P file is written atomically before the log is updated, so a raw sweep survives even if logging or project routing is interrupted.
+
 ## CSV result export
 
 CSV columns are `location`, `x_m`, `y_m`, `repeat_count`, `mean`, `standard_deviation`, `metric`, `comparison`, `center_hz`, `bandwidth_hz`, and `reference`. Values are recalculated from raw runs at export time. Missing/undefined numeric values use the platform CSV representation of NaN.

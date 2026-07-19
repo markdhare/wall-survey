@@ -28,6 +28,8 @@ Linux uses the same commands. PySide6 supplies the Qt runtime; a separate Qt ins
 7. Choose a metric, comparison, reference, center frequency, and bandwidth. A bandwidth of zero samples the selected point by complex interpolation.
 8. Inspect the result table, spatial map, and frequency traces. Export CSV and PNG outputs and save a portable `.wallscan` project.
 
+Wall Survey can also acquire directly from a NanoVNA-H. See [ACQUISITION_GUIDE.md](ACQUISITION_GUIDE.md) for serial connection, application-controlled segmented sweeps, averaging, immediate raw preservation, quality warnings, and guided grid routing.
+
 ## Quick comparison without a grid
 
 No grid is required for exploratory work or calibration checks. Click **Add loose run** and select one or several Touchstone files. They appear immediately in **Run Lab**, and selected rows are overlaid in **Run comparison**. The current scalar result for every run follows the metric, center, and bandwidth controls.

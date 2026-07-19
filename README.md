@@ -9,5 +9,4 @@ uv sync --extra dev
 uv run wall-survey
 ```
 
-See [documentation/USER_GUIDE.md](documentation/USER_GUIDE.md) for the complete workflow and [documentation/DEVELOPER_GUIDE.md](documentation/DEVELOPER_GUIDE.md) for architecture and algorithms.
-
+See [documentation/USER_GUIDE.md](documentation/USER_GUIDE.md) for the analysis workflow, [documentation/ACQUISITION_GUIDE.md](documentation/ACQUISITION_GUIDE.md) for direct NanoVNA-H scanning, and [documentation/DEVELOPER_GUIDE.md](documentation/DEVELOPER_GUIDE.md) for architecture and algorithms.
