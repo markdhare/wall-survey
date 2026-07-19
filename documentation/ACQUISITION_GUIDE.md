@@ -45,6 +45,12 @@ The destination choices are:
 
 If a requested destination no longer exists or a post-capture dialog is cancelled, the preserved capture falls back to Run Lab rather than being discarded.
 
+### Mapping a run after capture
+
+Routing is not permanent. To move a measurement from Run Lab onto the wall, select one or more Run Lab rows and click **Map selected runs** in the main toolbar. Choose an existing location to add repeats, or type a new location label and coordinates. This moves the project records while preserving their run IDs and original S2P source paths. It does not recalculate, rename, or copy the raw measurements.
+
+This is useful when the operator deliberately captures to Run Lab for immediate inspection before deciding that the setup is trustworthy. It is also the recovery path when a capture falls back to Run Lab because its intended target was unavailable.
+
 ## Quality warnings
 
 After preservation, the application performs deliberately conservative sanity checks. A red warning is raised for conditions such as:
@@ -64,6 +70,8 @@ For guided wall mapping, import the complete coordinate grid and select **Next e
 
 Reference runs should be captured before and after the spatial scan when practical. Do not move cables unnecessarily, and record any repositioning, antenna change, calibration change, or interruption that could divide the dataset into different experimental conditions.
 
+For a complete first-session walkthrough—including preliminary Run Lab checks, baseline selection, CSV grid import, moving loose runs, guided capture, analysis, and backup—see **First-time tutorial: from connection to heatmap** in [USER_GUIDE.md](USER_GUIDE.md).
+
 ## Tested hardware
 
-The initial implementation was exercised against a NanoVNA-H on COM10 running firmware `0.4.5-1-gfbbceca`. Its shell reported the expected `sweep`, `frequencies`, `data`, `pause`, `resume`, and calibration-status commands. A direct 500 MHz–1.5 GHz, 101-point capture and a complete UI-driven capture both returned valid data without sanity warnings.
+The initial implementation was exercised against a NanoVNA-H on COM10 running firmware `0.4.5-1-gfbbceca`. Its shell reported the expected `sweep`, `frequencies`, `data`, `pause`, `resume`, and calibration-status commands. Direct 500 MHz–1.5 GHz captures were verified at 101 points, at 202 points across two segments, and with two-sweep complex averaging. A complete UI-driven connection, capture, raw preservation, and Run Lab route also succeeded. These test captures returned increasing frequencies and no sanity warnings.

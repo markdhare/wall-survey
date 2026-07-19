@@ -29,7 +29,7 @@ The immediate goal is anomaly mapping rather than definitive material identifica
 
 ## 2. Measurement methodology
 
-The experiment uses a NanoVNA-H as a swept-frequency source and receiver. One antenna is positioned on each side of the wall, nominally aligned along the same transmission path. At every survey location, the instrument records S21 over a broad frequency span—for example, 500 MHz to 1.5 GHz—and NanoVNA-Saver exports the complex measurements as Touchstone `.s2p` files. Coordinates are defined from a front view of the wall, with X increasing to the right and Y increasing upward, so measurements taken from opposite sides are not accidentally mirrored during mapping.
+The experiment uses a NanoVNA-H as a swept-frequency source and receiver. One antenna is positioned on each side of the wall, nominally aligned along the same transmission path. At every survey location, the instrument records S21 over a broad frequency span—for example, 500 MHz to 1.5 GHz—and the Wall Survey application acquires and immediately preserves the complex measurements as Touchstone `.s2p` files. NanoVNA-Saver exports remain compatible as an alternate workflow. Coordinates are defined from a front view of the wall, with X increasing to the right and Y increasing upward, so measurements taken from opposite sides are not accidentally mirrored during mapping.
 
 Reference measurements provide context for the wall survey. Candidate references include a fixed antenna separation in free space, known sandstone construction, a known wooden door or void, and repeated baseline measurements before and after a scan. Repeats help distinguish persistent spatial contrast from cable movement, antenna misalignment, instrument drift, or changes in the surrounding environment. The experimental setup should keep antenna polarization, stand-off distance, cable placement, calibration plane, sweep configuration, and mounting geometry as constant as practical.
 
@@ -75,7 +75,7 @@ There may also be a modest service or product opportunity in repeatable, nondest
 
 ## 7. Next steps
 
-Near-term improvements include direct NanoVNA acquisition, guided grid scanning, stronger metadata capture, better comparison of multiple reference materials, and repeatability diagnostics. On the experimental side, the most valuable next step is likely a controlled mock wall or known doorway that can be scanned without uncertainty about the ground truth. That would allow frequency choice, grid spacing, antenna geometry, and classification ideas to be evaluated without tuning them solely against the mystery wall.
+The software now includes direct NanoVNA-H acquisition, immediate raw preservation, guided grid routing, and basic capture sanity checks. Near-term improvements include stronger metadata capture, better comparison of multiple reference materials, richer repeatability diagnostics, and support for additional VNA protocols. On the experimental side, the most valuable next step is likely a controlled mock wall or known doorway that can be scanned without uncertainty about the ground truth. That would allow frequency choice, grid spacing, antenna geometry, and classification ideas to be evaluated without tuning them solely against the mystery wall.
 
 > **Fill in later:** List the next three experiments in priority order, what each would test, what equipment or construction is required, and what outcome would change your confidence in the approach.
 
@@ -98,4 +98,3 @@ Regardless of the final wall result, the project provides a useful platform for 
 - Table of acquisition and analysis settings
 - Link to source code and a small anonymized example dataset
 - Short limitations and safety statement
-

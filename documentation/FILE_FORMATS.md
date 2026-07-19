@@ -59,6 +59,35 @@ YAML is used for all editable metadata. Raw RF data remains Touchstone and repor
 
 Every raw capture directory contains one `capture_log.yaml` rather than one metadata sidecar per S2P file. It uses `format_version: 1` and a `captures` list. Each entry records the relative raw filename, label, intended destination, UTC acquisition time, device identity and calibration report, sweep settings, and any quality warnings. The S2P file is written atomically before the log is updated, so a raw sweep survives even if logging or project routing is interrupted.
 
+Example:
+
+```yaml
+format_version: 1
+captures:
+  - file: 20260719T144808_248_known_wall_repeat_1.s2p
+    label: known_wall_repeat_1
+    destination: existing_reference
+    acquired_at: '2026-07-19T14:48:08.248000+00:00'
+    device:
+      driver: nanovna_h_ascii
+      port: COM10
+      model: NanoVNA-H
+      firmware: 0.4.5-1-gfbbceca
+      info: |-
+        Board: NanoVNA-H
+      calibration: load isoln Es Er Et cal'ed
+    sweep:
+      start_hz: 500000000
+      stop_hz: 1500000000
+      points: 202
+      averages: 2
+    quality_flags: []
+```
+
+The `destination` records the operator's requested route at capture time. It is provenance, not a live pointer into a `.wallscan` project: a run can later move from Run Lab to a map location without rewriting the raw acquisition log. Filenames are made filesystem-safe, and a numeric suffix prevents an existing capture from being overwritten if timestamps and labels collide.
+
+Directly acquired S2P files contain UTC acquisition time and device identity in `!` comment lines, followed by `# HZ S RI R 50`. The records use standard S11, S21, S12, S22 ordering. S12 and S22 are written as zero because this NanoVNA-H workflow acquires only S11 and S21; they must not be interpreted as measured reverse parameters.
+
 ## CSV result export
 
 CSV columns are `location`, `x_m`, `y_m`, `repeat_count`, `mean`, `standard_deviation`, `metric`, `comparison`, `center_hz`, `bandwidth_hz`, and `reference`. Values are recalculated from raw runs at export time. Missing/undefined numeric values use the platform CSV representation of NaN.

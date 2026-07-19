@@ -70,9 +70,9 @@ Tests exercise the real NanoVNA-Saver examples, numerical reference behavior, an
 
 Add a preview-stage importer that applies a user-editable regular expression, displays every parsed coordinate before mutation, and records the selected naming rule in project YAML. Never silently infer coordinates.
 
-### Direct NanoVNA acquisition
+### NanoVNA V2 acquisition
 
-Define an acquisition protocol returning a file-backed `Run`. A serial NanoVNA implementation should enumerate devices, read and display sweep/calibration state, acquire all complex points, write a standards-compliant raw Touchstone file, and only then add it to the model. NanoVNA-Saver automation is another possible adapter, but tight GUI automation is more brittle than using the serial protocol or a supported API.
+The current ASCII-shell driver is limited deliberately to NanoVNA-H/H4. A NanoVNA V2 implementation should live beside it and implement the binary register/FIFO protocol behind `VnaDevice`. Device-family detection belongs in a driver registry or factory; it must not add V2-specific branches to project routing, raw preservation, or analysis code. Hardware-specific sweep constraints should remain in the driver and be surfaced clearly by the acquisition panel.
 
 ### Continuous heatmaps
 
