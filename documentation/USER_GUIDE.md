@@ -36,7 +36,7 @@ To calculate one run relative to another, choose the baseline run from the **Bas
 
 ## Controls and analysis choices
 
-The top analysis bar updates the tables and map immediately. **Baseline** identifies the reference group or loose run used by a reference comparison; it has no effect on **Absolute measurement**.
+The top analysis bar updates the tables, comparison graph, and map immediately. **Baseline** identifies the reference group or loose run used by a reference comparison; it has no effect on **Absolute measurement**. The graph title and vertical axis always identify the quantity currently displayed. A blue vertical line marks a point analysis; a translucent blue region marks the samples included in a band analysis.
 
 - **Magnitude (dB)** is the mean of `20 log10(|S|)` in the selected band. This is usually the clearest starting point.
 - **Linear magnitude** averages `|S|` without logarithmic weighting.
@@ -49,14 +49,15 @@ The top analysis bar updates the tables and map immediately. **Baseline** identi
 Comparisons remain explicitly separate from metrics:
 
 - **Absolute measurement** analyzes the test run directly.
-- **Reference delta (dB)** and **complex ratio magnitude (dB)** analyze `S_test / mean(S_reference)`; both produce ratio magnitude for magnitude-type metrics. The complex ratio option emphasizes that phase is retained before the metric is computed.
+- **Reference delta (dB)** displays and averages `20 log10(|S_test / mean(S_reference)|)`. Because this comparison defines its result in dB, the separate metric selector is disabled.
+- **Complex ratio magnitude (dB)** first forms the complex ratio `S_test / mean(S_reference)`, then applies the selected metric. This permits normalized linear power, phase, group delay, and the other metric choices as well as magnitude.
 - **Reference phase delta** computes the circular mean of the phase of `S_test × conjugate(S_reference)`.
 
-Reference repeats are interpolated onto each test run's analysis frequencies and averaged as complex values. Location repeats are analyzed individually; the table reports their arithmetic mean and sample standard deviation. A dash means the requested frequency is outside a run, a required reference is absent, or the metric is undefined.
+Reference repeats are interpolated onto each test run's analysis frequencies and averaged as complex values. Only the frequency overlap shared by the test and every selected reference repeat is compared; values are never extrapolated beyond a reference sweep. Location repeats are analyzed individually; the table reports their arithmetic mean and sample standard deviation. A dash means the requested frequency is outside a run, a required reference is absent, the sweeps do not overlap, or the metric is undefined.
 
 ## Reading the displays
 
-The Measurements table preserves the exact coordinates and reports repeat statistics. The spatial map places measured dots at true coordinates and uses inverse-distance weighting to create a readable heatmap between them. The interpolated color field is a visualization, not additional measured data. Colors autoscale to the current finite minimum and maximum, or uncheck **Auto scale** and enter fixed limits for comparable exports. Select measurement rows to show up to four locations in the trace view.
+The Measurements table preserves the exact coordinates and reports repeat statistics. The spatial map places measured dots at true coordinates and uses inverse-distance weighting to create a readable heatmap between them. The interpolated color field is a visualization, not additional measured data. Heatmap scale tools appear only while the heatmap tab is active. Colors autoscale to the current finite minimum and maximum, or uncheck **Auto scale** and enter fixed limits for comparable exports. Select measurement rows to show up to four locations in the trace view.
 
 An optional grid CSV makes irregular or large surveys quick to prepare. It requires `label,x_cm,y_cm` headers and accepts optional `row,column` integer columns. For example:
 

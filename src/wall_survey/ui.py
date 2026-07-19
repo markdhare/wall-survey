@@ -11,12 +11,12 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog,
-    QLabel, QMainWindow, QMessageBox, QPushButton, QSplitter, QStatusBar,
+    QDoubleSpinBox, QFileDialog, QFormLayout, QHeaderView, QHBoxLayout, QInputDialog,
+    QLabel, QMainWindow, QMessageBox, QSizePolicy, QSplitter, QStatusBar,
     QTableWidget, QTableWidgetItem, QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
-from .metrics import AnalysisSettings, Comparison, Metric, analyze
+from .metrics import AnalysisSettings, Comparison, Metric, analyze, trace_series
 from .model import Location, Reference, Run, SurveyProject
 from .project_io import load_project, save_project
 from .touchstone import NetworkData, read_touchstone
@@ -45,6 +45,7 @@ class MainWindow(QMainWindow):
         self.project = SurveyProject()
         self.network_cache: dict[str, NetworkData] = {}
         self.setWindowTitle("Wall Survey — NanoVNA transmission mapping")
+        self.setAnimated(False)
         self.resize(1400, 850)
         self._build_actions()
         self._build_ui()
@@ -55,13 +56,15 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Project")
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
-        for text, slot in [("New", self.new_project), ("Open", self.open_project), ("Save", self.save_project), ("Import grid CSV", self.import_grid), ("Add reference", self.add_reference), ("Add loose run", self.add_loose_runs), ("Map a run", self.add_location_run), ("Export CSV", self.export_csv), ("Export heatmap", self.export_heatmap)]:
+        actions = [("New", self.new_project), ("Open", self.open_project), ("Save", self.save_project), ("Import grid CSV", self.import_grid), ("Add reference", self.add_reference), ("Add loose run", self.add_loose_runs), ("Map a run", self.add_location_run), ("Export CSV", self.export_csv), ("Export heatmap", self.export_heatmap)]
+        for index, (text, slot) in enumerate(actions):
+            if index in {3, 7}: toolbar.addSeparator()
             action = QAction(text, self); action.triggered.connect(slot); toolbar.addAction(action)
 
     def _build_ui(self):
         outer = QWidget(); layout = QVBoxLayout(outer); layout.setContentsMargins(8, 8, 8, 8)
         self.guidance = QLabel("Start anywhere: add loose runs for quick comparison, add references for baselines, or import a grid for wall mapping.")
-        self.guidance.setObjectName("guidance"); layout.addWidget(self.guidance)
+        self.guidance.setObjectName("guidance"); self.guidance.setFixedHeight(38); self.guidance.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed); layout.addWidget(self.guidance)
         controls = QHBoxLayout()
         # Do not call this ``self.metric``: QPaintDevice.metric() is a virtual
         # method that Qt calls internally while painting every widget.
@@ -73,24 +76,33 @@ class MainWindow(QMainWindow):
         self.auto_scale = QCheckBox("Auto scale"); self.auto_scale.setChecked(True)
         self.scale_min = QDoubleSpinBox(); self.scale_min.setRange(-1e12, 1e12); self.scale_min.setDecimals(4); self.scale_min.setValue(-60)
         self.scale_max = QDoubleSpinBox(); self.scale_max.setRange(-1e12, 1e12); self.scale_max.setDecimals(4); self.scale_max.setValue(0)
+        self.metric_combo.setToolTip("Quantity plotted and reduced over the selected frequency point or band.")
+        self.comparison.setToolTip("Show an absolute measurement or transform it relative to the selected baseline.")
+        self.reference.setToolTip("Reference group or Run Lab file used as the comparison baseline.")
+        self.frequency.setToolTip("Center of the highlighted analysis point or band.")
+        self.bandwidth.setToolTip("Analysis width. Zero selects a single interpolated frequency.")
         for label, widget in [("Metric", self.metric_combo), ("Comparison", self.comparison), ("Baseline", self.reference), ("Center", self.frequency), ("Bandwidth (0 = point)", self.bandwidth)]:
             controls.addWidget(QLabel(label)); controls.addWidget(widget)
         controls.addStretch()
         layout.addLayout(controls)
-        scale_controls = QHBoxLayout(); scale_controls.addWidget(self.auto_scale); scale_controls.addWidget(QLabel("Color minimum")); scale_controls.addWidget(self.scale_min); scale_controls.addWidget(QLabel("Color maximum")); scale_controls.addWidget(self.scale_max); scale_controls.addStretch(); layout.addLayout(scale_controls)
+        self.scale_panel = QWidget(); scale_controls = QHBoxLayout(self.scale_panel); scale_controls.setContentsMargins(0, 0, 0, 0)
+        scale_controls.addWidget(self.auto_scale); scale_controls.addWidget(QLabel("Color minimum")); scale_controls.addWidget(self.scale_min); scale_controls.addWidget(QLabel("Color maximum")); scale_controls.addWidget(self.scale_max); scale_controls.addStretch(); layout.addWidget(self.scale_panel)
         splitter = QSplitter(Qt.Horizontal)
         self.data_tabs = QTabWidget()
         self.location_table = QTableWidget(0, 8); self.location_table.setHorizontalHeaderLabels(["Label", "X (cm)", "Y (cm)", "Row", "Column", "Repeats", "Mean", "Std. dev."])
         self.location_table.setSelectionBehavior(QAbstractItemView.SelectRows); self.location_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.reference_table = QTableWidget(0, 3); self.reference_table.setHorizontalHeaderLabels(["Reference", "Material / condition", "Runs"]); self.reference_table.setSelectionBehavior(QAbstractItemView.SelectRows); self.reference_table.setSelectionMode(QAbstractItemView.ExtendedSelection); self.reference_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.loose_table = QTableWidget(0, 4); self.loose_table.setHorizontalHeaderLabels(["Run", "Source file", "Current result", "Frequency span"]); self.loose_table.setSelectionBehavior(QAbstractItemView.SelectRows); self.loose_table.setSelectionMode(QAbstractItemView.ExtendedSelection); self.loose_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        for table in (self.location_table, self.reference_table, self.loose_table):
+            table.setAlternatingRowColors(True); table.setShowGrid(False); table.verticalHeader().setVisible(False)
+            table.horizontalHeader().setStretchLastSection(True); table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.data_tabs.addTab(self.loose_table, "Run Lab"); self.data_tabs.addTab(self.location_table, "Wall Map"); self.data_tabs.addTab(self.reference_table, "References")
         splitter.addWidget(self.data_tabs)
         self.plot_tabs = QTabWidget()
         self.heat_plot = pg.PlotWidget(); self.heat_plot.setLabel("bottom", "X — front view", units="cm"); self.heat_plot.setLabel("left", "Y", units="cm"); self.heat_plot.showGrid(x=True, y=True, alpha=0.25); self.heat_plot.setAspectLocked(True)
         self.heat_image = pg.ImageItem(axisOrder="row-major"); self.heat_plot.addItem(self.heat_image)
         self.heat_scatter = pg.ScatterPlotItem(size=14, pen=pg.mkPen("w", width=1)); self.heat_plot.addItem(self.heat_scatter)
-        self.trace_plot = pg.PlotWidget(); self.trace_plot.setLabel("bottom", "Frequency", units="Hz"); self.trace_plot.setLabel("left", "S parameter magnitude", units="dB"); self.trace_plot.showGrid(x=True, y=True, alpha=0.25); self.trace_plot.addLegend(offset=(12, 12))
+        self.trace_plot = pg.PlotWidget(); self.trace_plot.setLabel("bottom", "Frequency", units="MHz"); self.trace_plot.setLabel("left", "Magnitude", units="dB"); self.trace_plot.showGrid(x=True, y=True, alpha=0.25); self.trace_plot.addLegend(offset=(12, 12))
         self.plot_tabs.addTab(self.trace_plot, "Run comparison"); self.plot_tabs.addTab(self.heat_plot, "Wall heatmap")
         splitter.addWidget(self.plot_tabs); splitter.setSizes([520, 850]); layout.addWidget(splitter)
         self.setCentralWidget(outer); self.setStatusBar(QStatusBar())
@@ -99,6 +111,23 @@ class MainWindow(QMainWindow):
         self.auto_scale.toggled.connect(self.refresh_results); self.scale_min.valueChanged.connect(self.refresh_results); self.scale_max.valueChanged.connect(self.refresh_results)
         self.location_table.itemSelectionChanged.connect(self.refresh_trace)
         self.reference_table.itemSelectionChanged.connect(self.refresh_trace); self.loose_table.itemSelectionChanged.connect(self.refresh_trace); self.data_tabs.currentChanged.connect(self.refresh_trace)
+        self.plot_tabs.currentChanged.connect(self._update_control_states)
+        self._update_control_states()
+
+    def _update_control_states(self):
+        comparison = Comparison(self.comparison.currentText())
+        needs_baseline = comparison != Comparison.ABSOLUTE
+        # Keep Baseline selectable even for absolute plots so users can choose
+        # it before switching to a normalized comparison.
+        self.reference.setEnabled(True)
+        self.metric_combo.setEnabled(comparison in {Comparison.ABSOLUTE, Comparison.COMPLEX_RATIO_DB})
+        manual_scale = not self.auto_scale.isChecked()
+        self.scale_min.setEnabled(manual_scale); self.scale_max.setEnabled(manual_scale)
+        self.scale_panel.setVisible(self.plot_tabs.currentIndex() == 1)
+        if needs_baseline and self.reference.currentData() is None:
+            self.guidance.setText("Choose a Baseline to calculate this comparison. Add a reference group or a loose Run Lab file if needed.")
+        else:
+            self.guidance.setText("Start anywhere: add loose runs for quick comparison, add references for baselines, or import a grid for wall mapping.")
 
     def _apply_style(self):
         self.setStyleSheet("""
@@ -235,10 +264,15 @@ class MainWindow(QMainWindow):
         return rows
 
     def refresh_results(self):
+        self._update_control_states()
         self.project.active_reference_id = self.reference.currentData()
         reference = self.reference_networks(); settings = self.settings()
         for row, run in enumerate(self.project.loose_runs):
             if self.loose_table.item(row, 2): self.loose_table.item(row, 2).setText(self._number(analyze(self.network(run), settings, reference)))
+        result_name = self._result_name(settings)
+        self.loose_table.horizontalHeaderItem(2).setText(result_name)
+        self.location_table.horizontalHeaderItem(6).setText(f"Mean · {result_name}")
+        self.location_table.horizontalHeaderItem(7).setText("Std. dev.")
         rows = self.results(); self.location_table.setRowCount(len(rows))
         spots, finite_values = [], [value for _, value, _ in rows if np.isfinite(value)]
         low, high = (min(finite_values), max(finite_values)) if finite_values else (0.0, 1.0)
@@ -262,6 +296,7 @@ class MainWindow(QMainWindow):
             self.heat_image.setImage(image, levels=(low, high), autoLevels=False); self.heat_image.setColorMap(cmap); self.heat_image.setRect(QRectF(x0, y0, x1 - x0, y1 - y0)); self.heat_image.show()
         else: self.heat_image.hide()
         self.statusBar().showMessage(f"{len(rows)} locations · scale {self._number(low)} to {self._number(high)}")
+        self.refresh_trace()
 
     def refresh_trace(self):
         self.trace_plot.clear(); rows = sorted({item.row() for item in self.location_table.selectedItems()})
@@ -278,10 +313,25 @@ class MainWindow(QMainWindow):
             ref_rows = sorted({item.row() for item in self.reference_table.selectedItems()})
             if not ref_rows and self.project.references: ref_rows = [0]
             selected = [(f"{self.project.references[row].name} · {run.label}", run) for row in ref_rows for run in self.project.references[row].runs]
-        colors = ["#00b7ff", "#ff9d00", "#8bd450", "#ef476f"]
+        settings = self.settings(); reference = self.reference_networks()
+        colors = ["#00b7ff", "#ff9d00", "#8bd450", "#ef476f", "#b388ff", "#f7d154"]
+        axis_label, units = "Result", ""
         for index, (label, run) in enumerate(selected[:12]):
-            net = self.network(run); values = net.parameter(self.project.parameter); db = 20 * np.log10(np.maximum(np.abs(values), 1e-15))
-            self.trace_plot.plot(net.frequency_hz, db, pen=pg.mkPen(colors[index % len(colors)], width=2), name=label)
+            series = trace_series(self.network(run), settings, reference)
+            axis_label, units = series.axis_label, series.units
+            finite = np.isfinite(series.values)
+            self.trace_plot.plot(series.frequency_hz[finite] / 1e6, series.values[finite], pen=pg.mkPen(colors[index % len(colors)], width=2), name=label)
+        self.trace_plot.setLabel("left", axis_label, units=units or None)
+        baseline = self.reference.currentText() if settings.comparison != Comparison.ABSOLUTE else "No baseline"
+        self.trace_plot.setTitle(f"{self._result_name(settings)} · {baseline}", color="#bdeeff", size="10pt")
+        center_mhz = settings.center_hz / 1e6
+        if settings.bandwidth_hz > 0:
+            half_mhz = settings.bandwidth_hz / 2e6
+            region = pg.LinearRegionItem((center_mhz - half_mhz, center_mhz + half_mhz), movable=False, brush=pg.mkBrush(65, 185, 215, 35), pen=pg.mkPen(65, 185, 215, 150))
+            region.setZValue(-10); self.trace_plot.addItem(region)
+        else:
+            marker = pg.InfiniteLine(center_mhz, angle=90, movable=False, pen=pg.mkPen(65, 185, 215, 190, width=2))
+            marker.setZValue(-10); self.trace_plot.addItem(marker)
 
     def export_csv(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export result table", "wall_survey_results.csv", "CSV (*.csv)")
@@ -298,5 +348,12 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _number(value: float) -> str: return "—" if not np.isfinite(value) else f"{value:.6g}"
+
+    @staticmethod
+    def _result_name(settings: AnalysisSettings) -> str:
+        if settings.comparison == Comparison.DELTA_DB: return "Magnitude delta (dB)"
+        if settings.comparison == Comparison.PHASE_DELTA: return "Phase delta (deg)"
+        if settings.comparison == Comparison.COMPLEX_RATIO_DB: return f"Normalized {settings.metric.value}"
+        return settings.metric.value
 
     def _error(self, title: str, exc: Exception): QMessageBox.critical(self, title, str(exc))

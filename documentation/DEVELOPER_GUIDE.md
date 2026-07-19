@@ -25,9 +25,11 @@ This split is the extension seam for acquisition hardware, automated naming, int
 
 Touchstone two-port ordering is column-major by stimulus: S11, S21, S12, S22. The parser reshapes with Fortran order so `s[:, output, input]` is correct. Frequencies are sorted ascending.
 
-Complex interpolation linearly interpolates real and imaginary components. This avoids discontinuities at ±180 degrees and is appropriate for narrow gaps in a dense sweep. It must not extrapolate: `analyze` returns NaN outside the measured span.
+Complex interpolation linearly interpolates real and imaginary components. This avoids discontinuities at ±180 degrees and is appropriate for narrow gaps in a dense sweep. Reference interpolation is masked outside each reference's measured span; scalar analysis and trace display use only the common finite overlap and never extrapolate reference values.
 
 For a band, the engine selects native sample frequencies within `[center - bandwidth/2, center + bandwidth/2]`. A point request interpolates exactly at the center. Reference repeats are independently interpolated and complex-averaged. Test repeats are not complex-averaged: each becomes a scalar result so experimental spread remains visible.
+
+`trace_series` applies the same comparison semantics as `analyze` across a complete sweep and returns an axis label and unit with the graph-ready values. The UI must use this function rather than independently recreating RF transformations. Its non-movable `InfiniteLine` or `LinearRegionItem` shows the frequency selection reduced by `analyze`.
 
 Loose runs use the same `Run` object but are owned by `SurveyProject.loose_runs`. They can act as a one-run analysis baseline without duplication: the UI baseline selector resolves either a reference-group ID or a loose-run ID into a list of networks.
 
