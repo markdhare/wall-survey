@@ -1,0 +1,30 @@
+[project]
+name = "wall-survey"
+version = "0.1.0"
+description = "NanoVNA transmission survey analysis for locating hidden wall features"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.0",
+  "pyqtgraph>=0.13.7",
+  "pyside6>=6.8",
+  "pyyaml>=6.0.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-cov>=6.0"]
+
+[project.scripts]
+wall-survey = "wall_survey.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wall_survey"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
