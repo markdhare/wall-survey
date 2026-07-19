@@ -13,7 +13,7 @@ YAML project -> domain model ---------+-> metric engine -> repeat statistics
 The package uses a `src` layout:
 
 - `touchstone.py` parses raw S1P/S2P into frequencies and a complex `(frequency, output port, input port)` matrix.
-- `model.py` defines projects, reference conditions, spatial locations, and runs. The model has no Qt dependency.
+- `model.py` defines projects, reference conditions, spatial locations, and off-grid Run Lab runs. The model has no Qt dependency.
 - `metrics.py` handles complex interpolation, reference aggregation, frequency windows, and scalar metrics.
 - `project_io.py` serializes the model to a safe portable archive.
 - `ui.py` owns interaction, repeat aggregation, table rendering, traces, and the spatial scatter map.
@@ -28,6 +28,8 @@ Touchstone two-port ordering is column-major by stimulus: S11, S21, S12, S22. Th
 Complex interpolation linearly interpolates real and imaginary components. This avoids discontinuities at ±180 degrees and is appropriate for narrow gaps in a dense sweep. It must not extrapolate: `analyze` returns NaN outside the measured span.
 
 For a band, the engine selects native sample frequencies within `[center - bandwidth/2, center + bandwidth/2]`. A point request interpolates exactly at the center. Reference repeats are independently interpolated and complex-averaged. Test repeats are not complex-averaged: each becomes a scalar result so experimental spread remains visible.
+
+Loose runs use the same `Run` object but are owned by `SurveyProject.loose_runs`. They can act as a one-run analysis baseline without duplication: the UI baseline selector resolves either a reference-group ID or a loose-run ID into a list of networks.
 
 Group delay uses numerical differentiation of unwrapped phase against angular frequency. It is noise-sensitive, so users should select a meaningful bandwidth. Integrated power uses trapezoidal integration. Phase differences use a circular mean.
 

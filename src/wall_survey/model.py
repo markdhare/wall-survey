@@ -46,9 +46,9 @@ class SurveyProject:
     view: str = "front"
     references: list[Reference] = field(default_factory=list)
     locations: list[Location] = field(default_factory=list)
+    loose_runs: list[Run] = field(default_factory=list)
     active_reference_id: str | None = None
     project_path: Path | None = field(default=None, repr=False, compare=False)
 
     def reference(self, reference_id: str | None) -> Reference | None:
         return next((item for item in self.references if item.id == reference_id), None)
-

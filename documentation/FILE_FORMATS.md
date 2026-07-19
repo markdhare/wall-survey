@@ -44,6 +44,11 @@ locations:
     row: 1
     column: 1
     runs: []
+loose_runs:
+  - id: exploratory01
+    label: known_void
+    source: data/exploratory01_known_void.s2p
+    notes: Off-grid comparison run
 ```
 
 All coordinates are SI metres. IDs are opaque and stable within a project. `source` is always relative to the archive root. The loader rejects absolute paths and parent traversal. Saving writes a temporary archive and replaces the destination only after completion. Extracted working copies live in a temporary directory; saving repackages them.
@@ -53,4 +58,3 @@ YAML is used for all editable metadata. Raw RF data remains Touchstone and repor
 ## CSV result export
 
 CSV columns are `location`, `x_m`, `y_m`, `repeat_count`, `mean`, `standard_deviation`, `metric`, `comparison`, `center_hz`, `bandwidth_hz`, and `reference`. Values are recalculated from raw runs at export time. Missing/undefined numeric values use the platform CSV representation of NaN.
-

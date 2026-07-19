@@ -28,9 +28,15 @@ Linux uses the same commands. PySide6 supplies the Qt runtime; a separate Qt ins
 7. Choose a metric, comparison, reference, center frequency, and bandwidth. A bandwidth of zero samples the selected point by complex interpolation.
 8. Inspect the result table, spatial map, and frequency traces. Export CSV and PNG outputs and save a portable `.wallscan` project.
 
+## Quick comparison without a grid
+
+No grid is required for exploratory work or calibration checks. Click **Add loose run** and select one or several Touchstone files. They appear immediately in **Run Lab**, and selected rows are overlaid in **Run comparison**. The current scalar result for every run follows the metric, center, and bandwidth controls.
+
+To calculate one run relative to another, choose the baseline run from the **Baseline** selector, then choose **Reference delta (dB)**, **Complex ratio magnitude (dB)**, or **Reference phase delta**. Reference groups and individual Run Lab files are both available as baselines. This supports known-wall versus known-void experiments without creating map points. Use **Add reference** when several repeat files describe one baseline condition; select the References tab to inspect their spectra.
+
 ## Controls and analysis choices
 
-The top analysis bar updates the table and map immediately.
+The top analysis bar updates the tables and map immediately. **Baseline** identifies the reference group or loose run used by a reference comparison; it has no effect on **Absolute measurement**.
 
 - **Magnitude (dB)** is the mean of `20 log10(|S|)` in the selected band. This is usually the clearest starting point.
 - **Linear magnitude** averages `|S|` without logarithmic weighting.

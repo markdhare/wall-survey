@@ -46,6 +46,7 @@ def save_project(project: SurveyProject, destination: str | Path) -> Path:
             "project": {"name": project.name, "description": project.description, "parameter": project.parameter, "view": project.view, "active_reference_id": project.active_reference_id},
             "references": [{"id": ref.id, "name": ref.name, "material": ref.material, "runs": [archive_run(run) for run in ref.runs]} for ref in project.references],
             "locations": [{"id": loc.id, "label": loc.label, "x_m": loc.x_m, "y_m": loc.y_m, "row": loc.row, "column": loc.column, "runs": [archive_run(run) for run in loc.runs]} for loc in project.locations],
+            "loose_runs": [archive_run(run) for run in project.loose_runs],
         }
         (root / "project.yaml").write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
         temporary = destination.with_suffix(destination.suffix + ".tmp")
@@ -77,6 +78,6 @@ def load_project(source: str | Path, extraction_root: str | Path | None = None) 
     project.active_reference_id = meta.get("active_reference_id")
     project.references = [Reference(item["id"], item["name"], item.get("material", ""), [run(value) for value in item.get("runs", [])]) for item in payload.get("references", [])]
     project.locations = [Location(item["id"], item.get("label", ""), float(item["x_m"]), float(item["y_m"]), item.get("row"), item.get("column"), [run(value) for value in item.get("runs", [])]) for item in payload.get("locations", [])]
+    project.loose_runs = [run(item) for item in payload.get("loose_runs", [])]
     project.project_path = source
     return project
-
