@@ -8,12 +8,12 @@ from pathlib import Path
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QAbstractItemView, QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFileDialog, QFormLayout, QHeaderView, QHBoxLayout, QInputDialog,
     QLabel, QMainWindow, QMessageBox, QSizePolicy, QSplitter, QStatusBar,
-    QTableWidget, QTableWidgetItem, QTabWidget, QToolBar, QVBoxLayout, QWidget,
+    QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from .metrics import AnalysisSettings, Comparison, Metric, analyze, trace_series
@@ -24,14 +24,15 @@ from .acquisition_ui import AcquisitionDock
 
 
 class LocationDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, title="Add measurement location"):
         super().__init__(parent)
-        self.setWindowTitle("Add measurement location")
+        self.setWindowTitle(title)
         form = QFormLayout(self)
         self.label = QComboBox()
         self.label.setEditable(True)
         self.x = QDoubleSpinBox(); self.x.setRange(-100_000, 100_000); self.x.setDecimals(3); self.x.setSuffix(" cm")
         self.y = QDoubleSpinBox(); self.y.setRange(-100_000, 100_000); self.y.setDecimals(3); self.y.setSuffix(" cm")
+        self.x.setButtonSymbols(QAbstractSpinBox.NoButtons); self.y.setButtonSymbols(QAbstractSpinBox.NoButtons)
         form.addRow("Location label", self.label)
         form.addRow("X from front-view left", self.x)
         form.addRow("Y above origin", self.y)
@@ -45,6 +46,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.project = SurveyProject()
         self.network_cache: dict[str, NetworkData] = {}
+        self.dirty = False
+        self._updating_band = False
         self.setWindowTitle("Wall Survey — NanoVNA transmission mapping")
         self.setAnimated(False)
         self.resize(1400, 850)
@@ -52,20 +55,44 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self.acquisition = AcquisitionDock(self); self.addDockWidget(Qt.RightDockWidgetArea, self.acquisition)
         self.acquisition.capture_ready.connect(self.route_capture)
-        self.toolbar.addSeparator(); self.toolbar.addAction(self.acquisition.toggleViewAction())
+        self.view_menu.addAction(self.acquisition.toggleViewAction())
         self._apply_style()
         self.refresh()
+        self._set_dirty(False)
 
     def _build_actions(self):
-        toolbar = QToolBar("Project")
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-        self.toolbar = toolbar
-        actions = [("New", self.new_project), ("Open", self.open_project), ("Save", self.save_project), ("Import grid CSV", self.import_grid), ("Add reference", self.add_reference), ("Add loose run", self.add_loose_runs), ("Map selected runs", self.map_selected_runs), ("Import mapped run", self.add_location_run), ("Export CSV", self.export_csv), ("Export heatmap", self.export_heatmap)]
-        for index, (text, slot) in enumerate(actions):
-            if index in {3, 8}: toolbar.addSeparator()
-            action = QAction(text, self); action.triggered.connect(slot); toolbar.addAction(action)
-            if text == "Map selected runs": self.map_selected_action = action
+        def action(text, slot, shortcut=None):
+            item = QAction(text, self); item.triggered.connect(slot)
+            if shortcut: item.setShortcut(shortcut)
+            return item
+
+        menu = self.menuBar()
+        file_menu = menu.addMenu("&File")
+        file_menu.addAction(action("&New", self.new_project, QKeySequence.New))
+        file_menu.addAction(action("&Open…", self.open_project, QKeySequence.Open))
+        file_menu.addSeparator()
+        file_menu.addAction(action("&Save", self.save_project, QKeySequence.Save))
+        file_menu.addAction(action("Save &As…", self.save_project_as, QKeySequence.SaveAs))
+        file_menu.addSeparator()
+        export_menu = file_menu.addMenu("Export")
+        export_menu.addAction(action("Results CSV…", self.export_csv))
+        export_menu.addAction(action("Heatmap Image…", self.export_heatmap))
+        file_menu.addSeparator(); file_menu.addAction(action("E&xit", self.close, QKeySequence.Quit))
+
+        import_menu = menu.addMenu("&Import")
+        import_menu.addAction(action("&Grid CSV…", self.import_grid))
+        import_menu.addAction(action("&Reference Runs…", self.add_reference))
+        import_menu.addAction(action("&Loose Runs…", self.add_loose_runs))
+        import_menu.addAction(action("&Mapped Runs…", self.add_location_run))
+
+        map_menu = menu.addMenu("&Map")
+        map_menu.addAction(action("&Add Grid Point…", self.add_grid_point, "Ctrl+Shift+N"))
+        self.edit_location_action = action("&Edit Selected Grid Point…", self.edit_grid_point)
+        map_menu.addAction(self.edit_location_action)
+        map_menu.addSeparator()
+        self.map_selected_action = action("Map Selected Run Lab Runs…", self.map_selected_runs)
+        map_menu.addAction(self.map_selected_action)
+        self.view_menu = menu.addMenu("&View")
 
     def _build_ui(self):
         outer = QWidget(); layout = QVBoxLayout(outer); layout.setContentsMargins(8, 8, 8, 8)
@@ -82,6 +109,8 @@ class MainWindow(QMainWindow):
         self.auto_scale = QCheckBox("Auto scale"); self.auto_scale.setChecked(True)
         self.scale_min = QDoubleSpinBox(); self.scale_min.setRange(-1e12, 1e12); self.scale_min.setDecimals(4); self.scale_min.setValue(-60)
         self.scale_max = QDoubleSpinBox(); self.scale_max.setRange(-1e12, 1e12); self.scale_max.setDecimals(4); self.scale_max.setValue(0)
+        for spinbox in (self.frequency, self.bandwidth, self.scale_min, self.scale_max):
+            spinbox.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.metric_combo.setToolTip("Quantity plotted and reduced over the selected frequency point or band.")
         self.comparison.setToolTip("Show an absolute measurement or transform it relative to the selected baseline.")
         self.reference.setToolTip("Reference group or Run Lab file used as the comparison baseline.")
@@ -116,6 +145,8 @@ class MainWindow(QMainWindow):
         self.frequency.valueChanged.connect(self.refresh_results); self.bandwidth.valueChanged.connect(self.refresh_results)
         self.auto_scale.toggled.connect(self.refresh_results); self.scale_min.valueChanged.connect(self.refresh_results); self.scale_max.valueChanged.connect(self.refresh_results)
         self.location_table.itemSelectionChanged.connect(self.refresh_trace)
+        self.location_table.itemSelectionChanged.connect(self._update_run_actions)
+        self.location_table.itemDoubleClicked.connect(lambda _item: self.edit_grid_point())
         self.reference_table.itemSelectionChanged.connect(self.refresh_trace); self.loose_table.itemSelectionChanged.connect(self.refresh_trace); self.loose_table.itemSelectionChanged.connect(self._update_run_actions); self.data_tabs.currentChanged.connect(self.refresh_trace); self.data_tabs.currentChanged.connect(self._update_run_actions)
         self.plot_tabs.currentChanged.connect(self._update_control_states)
         self._update_control_states()
@@ -179,20 +210,32 @@ class MainWindow(QMainWindow):
         return [self.network(loose)] if loose else []
 
     def new_project(self):
-        self.project = SurveyProject(); self.network_cache.clear(); self.refresh(); self.statusBar().showMessage("New project", 3000)
+        if not self._confirm_discard_changes(): return
+        self.project = SurveyProject(); self.network_cache.clear(); self._set_dirty(False); self.refresh(); self.statusBar().showMessage("New project", 3000)
 
     def open_project(self):
+        if not self._confirm_discard_changes(): return
         path, _ = QFileDialog.getOpenFileName(self, "Open Wall Survey", "", "Wall Survey (*.wallscan)")
         if not path: return
-        try: self.project = load_project(path); self.network_cache.clear(); self.refresh(); self.statusBar().showMessage(f"Opened {path}", 5000)
+        try: self.project = load_project(path); self.network_cache.clear(); self._set_dirty(False); self.refresh(); self.statusBar().showMessage(f"Opened {path}", 5000)
         except Exception as exc: self._error("Could not open project", exc)
 
     def save_project(self):
         path = str(self.project.project_path or "")
-        if not path: path, _ = QFileDialog.getSaveFileName(self, "Save Wall Survey", f"{self.project.name}.wallscan", "Wall Survey (*.wallscan)")
-        if not path: return
-        try: save_project(self.project, path); self.statusBar().showMessage(f"Saved {path}", 5000)
+        if not path: return self.save_project_as()
+        return self._save_to(path)
+
+    def save_project_as(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save Wall Survey As", str(self.project.project_path or f"{self.project.name}.wallscan"), "Wall Survey (*.wallscan)")
+        if not path: return False
+        return self._save_to(path)
+
+    def _save_to(self, path):
+        try:
+            saved = save_project(self.project, path); self._set_dirty(False)
+            self.statusBar().showMessage(f"Saved {saved}", 5000); return True
         except Exception as exc: self._error("Could not save project", exc)
+        return False
 
     def add_reference(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Add reference Touchstone runs", "", "Touchstone (*.s2p *.s1p)")
@@ -204,6 +247,7 @@ class MainWindow(QMainWindow):
             for run in runs: self.network(run)
             ref = Reference(name=name.strip(), runs=runs); self.project.references.append(ref)
             if not self.project.active_reference_id: self.project.active_reference_id = ref.id
+            self._set_dirty()
             self.refresh(); self.data_tabs.setCurrentIndex(2); self.reference_table.selectRow(len(self.project.references) - 1); self.plot_tabs.setCurrentIndex(0)
             self.statusBar().showMessage(f"Imported {len(runs)} run(s) into reference '{ref.name}'", 7000)
         except Exception as exc: self._error("Could not import reference", exc)
@@ -215,6 +259,7 @@ class MainWindow(QMainWindow):
             runs = [Run(label=Path(path).stem, source=path) for path in files]
             for run in runs: self.network(run)
             self.project.loose_runs.extend(runs); self.refresh(); self.data_tabs.setCurrentIndex(0)
+            self._set_dirty()
             self.loose_table.clearSelection()
             for row in range(len(self.project.loose_runs) - len(runs), len(self.project.loose_runs)): self.loose_table.selectRow(row)
             self.plot_tabs.setCurrentIndex(0); self.statusBar().showMessage(f"Added {len(runs)} off-grid run(s) to Run Lab", 7000)
@@ -238,12 +283,15 @@ class MainWindow(QMainWindow):
             self.project.locations.append(location)
         moved_ids = {run.id for run in runs}; self.project.loose_runs = [run for run in self.project.loose_runs if run.id not in moved_ids]
         if self.project.active_reference_id in moved_ids: self.project.active_reference_id = None
+        self._set_dirty()
         self.refresh(); self.data_tabs.setCurrentIndex(1); self.plot_tabs.setCurrentIndex(1); self.location_table.selectRow(self.project.locations.index(location))
         self.statusBar().showMessage(f"Moved {len(runs)} Run Lab run(s) to map location '{location.label}'", 7000)
 
     def _update_run_actions(self):
         if hasattr(self, "map_selected_action"):
             self.map_selected_action.setEnabled(bool(self.loose_table.selectedItems()) and self.data_tabs.currentIndex() == 0)
+        if hasattr(self, "edit_location_action"):
+            self.edit_location_action.setEnabled(bool(self.location_table.selectedItems()) and self.data_tabs.currentIndex() == 1)
 
     def _configure_location_dialog(self, dialog: LocationDialog):
         for location in self.project.locations: dialog.label.addItem(location.label, location.id)
@@ -257,6 +305,31 @@ class MainWindow(QMainWindow):
 
         dialog.label.currentIndexChanged.connect(update_coordinates); dialog.label.editTextChanged.connect(update_coordinates)
         update_coordinates()
+
+    def add_grid_point(self):
+        dialog = LocationDialog(self, "Add grid point")
+        if dialog.exec() != QDialog.Accepted: return
+        label = dialog.label.currentText().strip() or f"P{len(self.project.locations) + 1}"
+        if any(item.label == label for item in self.project.locations):
+            QMessageBox.warning(self, "Duplicate grid point", f"A grid point named '{label}' already exists.")
+            return
+        location = Location(label=label, x_m=dialog.x.value() / 100, y_m=dialog.y.value() / 100)
+        self.project.locations.append(location); self._set_dirty(); self.refresh()
+        self.data_tabs.setCurrentIndex(1); self.location_table.selectRow(len(self.project.locations) - 1)
+
+    def edit_grid_point(self):
+        rows = sorted({item.row() for item in self.location_table.selectedItems()})
+        if len(rows) != 1: return
+        location = self.project.locations[rows[0]]
+        dialog = LocationDialog(self, "Edit grid point")
+        dialog.label.setEditText(location.label); dialog.x.setValue(location.x_m * 100); dialog.y.setValue(location.y_m * 100)
+        if dialog.exec() != QDialog.Accepted: return
+        label = dialog.label.currentText().strip() or location.label
+        if any(item is not location and item.label == label for item in self.project.locations):
+            QMessageBox.warning(self, "Duplicate grid point", f"A grid point named '{label}' already exists.")
+            return
+        location.label = label; location.x_m = dialog.x.value() / 100; location.y_m = dialog.y.value() / 100
+        self._set_dirty(); self.refresh(); self.data_tabs.setCurrentIndex(1); self.location_table.selectRow(rows[0])
 
     def import_grid(self):
         path, _ = QFileDialog.getOpenFileName(self, "Import coordinate grid", "", "CSV (*.csv)")
@@ -273,6 +346,7 @@ class MainWindow(QMainWindow):
                 if not label or label in known: raise ValueError(f"Duplicate or empty location label: {label!r}")
                 self.project.locations.append(Location(label=label, x_m=float(item["x_cm"]) / 100, y_m=float(item["y_cm"]) / 100, row=int(item["row"]) if item.get("row", "").strip() else None, column=int(item["column"]) if item.get("column", "").strip() else None))
                 known.add(label)
+            self._set_dirty()
             self.refresh(); self.statusBar().showMessage(f"Imported {len(rows)} grid locations", 5000)
         except Exception as exc: self._error("Could not import grid", exc)
 
@@ -285,12 +359,13 @@ class MainWindow(QMainWindow):
         try:
             runs = [Run(label=Path(path).stem, source=path) for path in files]
             for run in runs: self.network(run)
-            location_id = dialog.label.currentData()
-            existing = next((loc for loc in self.project.locations if loc.id == location_id), None)
+            location_id = dialog.label.currentData(); entered_label = dialog.label.currentText().strip()
+            existing = next((loc for loc in self.project.locations if loc.id == location_id and loc.label == entered_label), None)
             if existing: existing.runs.extend(runs)
             else:
                 label = dialog.label.currentText().strip() or f"P{len(self.project.locations) + 1}"
                 self.project.locations.append(Location(label=label, x_m=dialog.x.value() / 100, y_m=dialog.y.value() / 100, runs=runs))
+            self._set_dirty()
             self.refresh(); self.data_tabs.setCurrentIndex(1); self.location_table.selectRow(self.project.locations.index(existing) if existing else len(self.project.locations) - 1); self.plot_tabs.setCurrentIndex(1)
             self.statusBar().showMessage(f"Mapped {len(runs)} run(s) at {existing.label if existing else label}", 7000)
         except Exception as exc: self._error("Could not import measurement", exc)
@@ -337,6 +412,7 @@ class MainWindow(QMainWindow):
             else: self.project.loose_runs.append(run)
         else:
             self.project.loose_runs.append(run)
+        self._set_dirty()
         self.refresh()
         if destination in {"new_reference", "existing_reference"} and routed != "Run Lab": self.data_tabs.setCurrentIndex(2)
         elif destination in {"new_location", "existing_location", "next_empty"} and routed != "Run Lab": self.data_tabs.setCurrentIndex(1); self.plot_tabs.setCurrentIndex(1)
@@ -354,7 +430,9 @@ class MainWindow(QMainWindow):
 
     def refresh_results(self):
         self._update_control_states()
-        self.project.active_reference_id = self.reference.currentData()
+        selected_reference = self.reference.currentData()
+        if self.project.active_reference_id != selected_reference:
+            self.project.active_reference_id = selected_reference; self._set_dirty()
         reference = self.reference_networks(); settings = self.settings()
         for row, run in enumerate(self.project.loose_runs):
             if self.loose_table.item(row, 2): self.loose_table.item(row, 2).setText(self._number(analyze(self.network(run), settings, reference)))
@@ -416,11 +494,20 @@ class MainWindow(QMainWindow):
         center_mhz = settings.center_hz / 1e6
         if settings.bandwidth_hz > 0:
             half_mhz = settings.bandwidth_hz / 2e6
-            region = pg.LinearRegionItem((center_mhz - half_mhz, center_mhz + half_mhz), movable=False, brush=pg.mkBrush(65, 185, 215, 35), pen=pg.mkPen(65, 185, 215, 150))
+            region = pg.LinearRegionItem((center_mhz - half_mhz, center_mhz + half_mhz), movable=True, brush=pg.mkBrush(65, 185, 215, 35), pen=pg.mkPen(65, 185, 215, 150))
+            region.setToolTip("Drag the band or either edge to change the analysis center and bandwidth")
+            region.sigRegionChangeFinished.connect(lambda: self._band_region_changed(region))
             region.setZValue(-10); self.trace_plot.addItem(region)
         else:
             marker = pg.InfiniteLine(center_mhz, angle=90, movable=False, pen=pg.mkPen(65, 185, 215, 190, width=2))
             marker.setZValue(-10); self.trace_plot.addItem(marker)
+
+    def _band_region_changed(self, region):
+        if self._updating_band: return
+        low, high = sorted(region.getRegion())
+        self._updating_band = True
+        self.frequency.setValue((low + high) / 2); self.bandwidth.setValue(high - low)
+        self._updating_band = False
 
     def export_csv(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export result table", "wall_survey_results.csv", "CSV (*.csv)")
@@ -447,6 +534,23 @@ class MainWindow(QMainWindow):
 
     def _error(self, title: str, exc: Exception): QMessageBox.critical(self, title, str(exc))
 
+    def _set_dirty(self, dirty=True):
+        self.dirty = dirty
+        name = self.project.project_path.name if self.project.project_path else self.project.name
+        self.setWindowTitle(f"{'*' if dirty else ''}{name} — Wall Survey")
+        self.setWindowModified(dirty)
+
+    def _confirm_discard_changes(self):
+        if not self.dirty: return True
+        answer = QMessageBox.warning(
+            self, "Unsaved changes", "Save changes to the current Wall Survey project?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Save,
+        )
+        if answer == QMessageBox.Save: return bool(self.save_project())
+        return answer == QMessageBox.Discard
+
     def closeEvent(self, event):
+        if not self._confirm_discard_changes():
+            event.ignore(); return
         self.acquisition.shutdown()
-        super().closeEvent(event)
+        event.accept()

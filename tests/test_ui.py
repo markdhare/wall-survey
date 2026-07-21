@@ -67,6 +67,7 @@ def test_trace_updates_for_baseline_comparison_and_band():
     assert not window.scale_panel.isHidden()
     window.plot_tabs.setCurrentIndex(0)
     assert window.scale_panel.isHidden()
+    window._set_dirty(False)
     window.close()
 
 
@@ -100,6 +101,7 @@ def test_preserved_capture_routes_to_next_empty_grid_location():
     assert location.runs[0].label == "Guided run"
     assert window.data_tabs.currentIndex() == 1
     assert "R1C1" in window.acquisition.target_hint.text() or "No empty" in window.acquisition.target_hint.text()
+    window._set_dirty(False)
     window.close()
 
 
@@ -119,4 +121,35 @@ def test_selected_run_lab_run_can_be_moved_to_new_map_location():
     assert window.project.locations[0].runs[0].id == run.id
     assert window.project.locations[0].x_m == 0.25
     assert window.project.locations[0].y_m == 0.8
+    window._set_dirty(False)
+    window.close()
+
+
+def test_typed_location_label_does_not_reuse_combo_item_id(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    first = Location(label="First", x_m=0.1, y_m=0.2)
+    window.project.locations.append(first); window.refresh()
+    monkeypatch.setattr(
+        "wall_survey.ui.QFileDialog.getOpenFileNames",
+        lambda *args, **kwargs: ([str(EXAMPLES / "example_baseline.s2p")], ""),
+    )
+
+    def complete_dialog():
+        dialog = next(widget for widget in app.topLevelWidgets() if isinstance(widget, LocationDialog))
+        dialog.label.setEditText("Second"); dialog.x.setValue(30); dialog.y.setValue(40); dialog.accept()
+
+    QTimer.singleShot(0, complete_dialog)
+    window.add_location_run()
+    assert [location.label for location in window.project.locations] == ["First", "Second"]
+    assert not first.runs
+    assert window.project.locations[1].runs
+    window._set_dirty(False); window.close()
+
+
+def test_standard_menus_and_project_title_are_present():
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    assert [action.text().replace("&", "") for action in window.menuBar().actions()] == ["File", "Import", "Map", "View"]
+    assert "Untitled wall survey" in window.windowTitle()
     window.close()
