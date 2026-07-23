@@ -42,14 +42,15 @@ class ConnectWorker(QRunnable):
 
 
 class CaptureWorker(QRunnable):
-    def __init__(self, device, settings, directory, label, destination, target_id):
+    def __init__(self, device, settings, directory, label, destination, target_id, filename_label=None):
         super().__init__(); self.device = device; self.settings = settings; self.directory = directory
-        self.label = label; self.destination = destination; self.target_id = target_id; self.signals = WorkerSignals()
+        self.label = label; self.destination = destination; self.target_id = target_id
+        self.filename_label = filename_label or label; self.signals = WorkerSignals()
 
     def run(self):
         try:
             result = self.device.acquire(self.settings, lambda n, total, message: self.signals.progress.emit(n, total, message))
-            path = save_capture(result, self.directory, self.label, self.destination)
+            path = save_capture(result, self.directory, self.filename_label, self.destination)
             self.signals.captured.emit(result, str(path), self.destination, self.target_id, self.label)
         except Exception as exc: self.signals.failed.emit(str(exc))
         finally: self.signals.done.emit()
@@ -133,12 +134,19 @@ class AcquisitionDock(QDockWidget):
         directory = self.raw_directory.text().strip()
         if not directory: self._failure("Choose a raw data folder."); return
         label = self.run_label.text().strip() or "capture"; destination = self.destination.currentData(); target_id = self.target.currentData() or ""
+        target_name = self.target.currentText().split(" ·", 1)[0].strip()
+        filename_label = self.capture_filename_label(label, destination, target_name)
         self.settings_store.setValue("acquisition/raw_directory", directory)
         self._set_busy(True, "Starting capture…"); self.quality.clear()
-        worker = CaptureWorker(self.device, settings, directory, label, destination, target_id); self._track(worker)
+        worker = CaptureWorker(self.device, settings, directory, label, destination, target_id, filename_label); self._track(worker)
         worker.signals.progress.connect(self._progress); worker.signals.failed.connect(self._failure)
         worker.signals.captured.connect(self._captured); worker.signals.done.connect(lambda: self._set_busy(False))
         self.pool.start(worker)
+
+    @staticmethod
+    def capture_filename_label(label: str, destination: str, target_name: str) -> str:
+        """Include a known grid-point name in the preserved raw filename."""
+        return f"{target_name}_{label}" if destination in {"existing_location", "next_empty"} and target_name else label
 
     def set_targets(self, references, locations):
         self._references = [(item.id, item.name) for item in references]

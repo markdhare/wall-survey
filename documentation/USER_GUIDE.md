@@ -39,6 +39,8 @@ Wall Survey has three intentionally different destinations:
 - **References** groups one or more repeat runs representing a named baseline condition. Choosing the group in **Baseline** complex-averages its repeats before comparison.
 - **Wall Map** holds runs at explicit front-view X/Y coordinates. Several runs at one location are treated as repeats and produce mean and sample-standard-deviation results.
 
+On the **Wall Map**, right-click a grid point to rename, remove, or unmap an individual repeat, or to edit/delete the grid point itself. Removing a run only removes it from the project; its original Touchstone source file is preserved. Deleting a grid point moves its runs to **Run Lab** so measurements are not accidentally lost.
+
 A run does not need a coordinate when it is captured. It can begin in Run Lab and be moved to the map after its trace and quality have been reviewed.
 
 ## First-time tutorial: from connection to heatmap
@@ -62,6 +64,8 @@ Repeat for a known wall, known void, door, or obstacle if available. Select mult
 ### 4. Create the map plan
 
 Prepare a CSV with `label,x_cm,y_cm` and optional `row,column` columns, then click **Import grid CSV**. Check the **Wall Map** table before collecting: X must increase to the right in the chosen front view and Y must increase upward. Empty locations are useful because the guided acquisition destination can now identify the next unmeasured point.
+
+Direct captures routed to an existing or next-empty grid point include the point label in the raw `.s2p` filename. On the **Wall heatmap**, enable **Show point names** to display grid labels beside their markers.
 
 ### 5. Map an exploratory run if appropriate
 

@@ -12,7 +12,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFileDialog, QFormLayout, QHeaderView, QHBoxLayout, QInputDialog,
-    QLabel, QMainWindow, QMessageBox, QSizePolicy, QSplitter, QStatusBar,
+    QLabel, QMainWindow, QMenu, QMessageBox, QSizePolicy, QSplitter, QStatusBar,
     QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -89,6 +89,13 @@ class MainWindow(QMainWindow):
         map_menu.addAction(action("&Add Grid Point…", self.add_grid_point, "Ctrl+Shift+N"))
         self.edit_location_action = action("&Edit Selected Grid Point…", self.edit_grid_point)
         map_menu.addAction(self.edit_location_action)
+        self.delete_location_action = action("&Delete Selected Grid Point…", self.delete_grid_point)
+        map_menu.addAction(self.delete_location_action)
+        map_menu.addSeparator()
+        self.rename_run_action = action("Rename Run at Selected Point…", self.rename_location_run)
+        self.unmap_run_action = action("Move Run at Selected Point to Run Lab…", self.unmap_location_run)
+        self.delete_run_action = action("Remove Run at Selected Point…", self.delete_location_run)
+        map_menu.addAction(self.rename_run_action); map_menu.addAction(self.unmap_run_action); map_menu.addAction(self.delete_run_action)
         map_menu.addSeparator()
         self.map_selected_action = action("Map Selected Run Lab Runs…", self.map_selected_runs)
         map_menu.addAction(self.map_selected_action)
@@ -121,11 +128,14 @@ class MainWindow(QMainWindow):
         controls.addStretch()
         layout.addLayout(controls)
         self.scale_panel = QWidget(); scale_controls = QHBoxLayout(self.scale_panel); scale_controls.setContentsMargins(0, 0, 0, 0)
-        scale_controls.addWidget(self.auto_scale); scale_controls.addWidget(QLabel("Color minimum")); scale_controls.addWidget(self.scale_min); scale_controls.addWidget(QLabel("Color maximum")); scale_controls.addWidget(self.scale_max); scale_controls.addStretch(); layout.addWidget(self.scale_panel)
+        self.show_point_labels = QCheckBox("Show point names")
+        self.show_point_labels.setToolTip("Display grid-point labels beside measured and unmeasured markers.")
+        scale_controls.addWidget(self.auto_scale); scale_controls.addWidget(QLabel("Color minimum")); scale_controls.addWidget(self.scale_min); scale_controls.addWidget(QLabel("Color maximum")); scale_controls.addWidget(self.scale_max); scale_controls.addWidget(self.show_point_labels); scale_controls.addStretch(); layout.addWidget(self.scale_panel)
         splitter = QSplitter(Qt.Horizontal)
         self.data_tabs = QTabWidget()
         self.location_table = QTableWidget(0, 8); self.location_table.setHorizontalHeaderLabels(["Label", "X (cm)", "Y (cm)", "Row", "Column", "Repeats", "Mean", "Std. dev."])
         self.location_table.setSelectionBehavior(QAbstractItemView.SelectRows); self.location_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.location_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.reference_table = QTableWidget(0, 3); self.reference_table.setHorizontalHeaderLabels(["Reference", "Material / condition", "Runs"]); self.reference_table.setSelectionBehavior(QAbstractItemView.SelectRows); self.reference_table.setSelectionMode(QAbstractItemView.ExtendedSelection); self.reference_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.loose_table = QTableWidget(0, 4); self.loose_table.setHorizontalHeaderLabels(["Run", "Source file", "Current result", "Frequency span"]); self.loose_table.setSelectionBehavior(QAbstractItemView.SelectRows); self.loose_table.setSelectionMode(QAbstractItemView.ExtendedSelection); self.loose_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         for table in (self.location_table, self.reference_table, self.loose_table):
@@ -137,6 +147,7 @@ class MainWindow(QMainWindow):
         self.heat_plot = pg.PlotWidget(); self.heat_plot.setLabel("bottom", "X — front view", units="cm"); self.heat_plot.setLabel("left", "Y", units="cm"); self.heat_plot.showGrid(x=True, y=True, alpha=0.25); self.heat_plot.setAspectLocked(True)
         self.heat_image = pg.ImageItem(axisOrder="row-major"); self.heat_plot.addItem(self.heat_image)
         self.heat_scatter = pg.ScatterPlotItem(size=14, pen=pg.mkPen("w", width=1)); self.heat_plot.addItem(self.heat_scatter)
+        self.heat_labels = []
         self.trace_plot = pg.PlotWidget(); self.trace_plot.setLabel("bottom", "Frequency", units="MHz"); self.trace_plot.setLabel("left", "Magnitude", units="dB"); self.trace_plot.showGrid(x=True, y=True, alpha=0.25); self.trace_plot.addLegend(offset=(12, 12))
         self.plot_tabs.addTab(self.trace_plot, "Run comparison"); self.plot_tabs.addTab(self.heat_plot, "Wall heatmap")
         splitter.addWidget(self.plot_tabs); splitter.setSizes([520, 850]); layout.addWidget(splitter)
@@ -144,9 +155,11 @@ class MainWindow(QMainWindow):
         for widget in (self.metric_combo, self.comparison, self.reference): widget.currentIndexChanged.connect(self.refresh_results)
         self.frequency.valueChanged.connect(self.refresh_results); self.bandwidth.valueChanged.connect(self.refresh_results)
         self.auto_scale.toggled.connect(self.refresh_results); self.scale_min.valueChanged.connect(self.refresh_results); self.scale_max.valueChanged.connect(self.refresh_results)
+        self.show_point_labels.toggled.connect(self.refresh_results)
         self.location_table.itemSelectionChanged.connect(self.refresh_trace)
         self.location_table.itemSelectionChanged.connect(self._update_run_actions)
         self.location_table.itemDoubleClicked.connect(lambda _item: self.edit_grid_point())
+        self.location_table.customContextMenuRequested.connect(self._show_location_menu)
         self.reference_table.itemSelectionChanged.connect(self.refresh_trace); self.loose_table.itemSelectionChanged.connect(self.refresh_trace); self.loose_table.itemSelectionChanged.connect(self._update_run_actions); self.data_tabs.currentChanged.connect(self.refresh_trace); self.data_tabs.currentChanged.connect(self._update_run_actions)
         self.plot_tabs.currentChanged.connect(self._update_control_states)
         self._update_control_states()
@@ -291,7 +304,22 @@ class MainWindow(QMainWindow):
         if hasattr(self, "map_selected_action"):
             self.map_selected_action.setEnabled(bool(self.loose_table.selectedItems()) and self.data_tabs.currentIndex() == 0)
         if hasattr(self, "edit_location_action"):
-            self.edit_location_action.setEnabled(bool(self.location_table.selectedItems()) and self.data_tabs.currentIndex() == 1)
+            selected = bool(self.location_table.selectedItems()) and self.data_tabs.currentIndex() == 1
+            self.edit_location_action.setEnabled(selected)
+            self.delete_location_action.setEnabled(selected)
+            rows = {item.row() for item in self.location_table.selectedItems()}
+            has_run = len(rows) == 1 and bool(self.project.locations[next(iter(rows))].runs)
+            self.rename_run_action.setEnabled(has_run); self.unmap_run_action.setEnabled(has_run); self.delete_run_action.setEnabled(has_run)
+
+    def _show_location_menu(self, position):
+        item = self.location_table.itemAt(position)
+        if not item: return
+        if item.row() not in {selected.row() for selected in self.location_table.selectedItems()}:
+            self.location_table.clearSelection(); self.location_table.selectRow(item.row())
+        menu = QMenu(self)
+        menu.addAction(self.rename_run_action); menu.addAction(self.unmap_run_action); menu.addAction(self.delete_run_action)
+        menu.addSeparator(); menu.addAction(self.edit_location_action); menu.addAction(self.delete_location_action)
+        menu.exec(self.location_table.viewport().mapToGlobal(position))
 
     def _configure_location_dialog(self, dialog: LocationDialog):
         for location in self.project.locations: dialog.label.addItem(location.label, location.id)
@@ -330,6 +358,62 @@ class MainWindow(QMainWindow):
             return
         location.label = label; location.x_m = dialog.x.value() / 100; location.y_m = dialog.y.value() / 100
         self._set_dirty(); self.refresh(); self.data_tabs.setCurrentIndex(1); self.location_table.selectRow(rows[0])
+
+    def _selected_location_run(self):
+        rows = sorted({item.row() for item in self.location_table.selectedItems()})
+        if len(rows) != 1: return None, None
+        location = self.project.locations[rows[0]]
+        if not location.runs: return location, None
+        if len(location.runs) == 1: return location, location.runs[0]
+        labels = [f"{run.label} — {Path(run.source).name}" for run in location.runs]
+        selected, accepted = QInputDialog.getItem(self, "Choose repeat", f"Run at {location.label}", labels, 0, False)
+        return (location, location.runs[labels.index(selected)]) if accepted else (location, None)
+
+    def rename_location_run(self):
+        location, run = self._selected_location_run()
+        if not run: return
+        label, accepted = QInputDialog.getText(self, "Rename mapped run", "Run label", text=run.label)
+        if accepted and label.strip():
+            run.label = label.strip(); self._set_dirty(); self.refresh()
+            self.statusBar().showMessage(f"Renamed run at '{location.label}'", 5000)
+
+    def unmap_location_run(self):
+        location, run = self._selected_location_run()
+        if not run: return
+        location.runs.remove(run); self.project.loose_runs.append(run)
+        self._set_dirty(); self.refresh(); self.data_tabs.setCurrentIndex(0)
+        self.statusBar().showMessage(f"Moved run from '{location.label}' to Run Lab", 7000)
+
+    def delete_location_run(self):
+        location, run = self._selected_location_run()
+        if not run: return
+        answer = QMessageBox.question(
+            self, "Remove mapped run",
+            f"Remove '{run.label}' from grid point '{location.label}'?\n\nThe original source file will not be deleted.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes: return
+        location.runs.remove(run); self.network_cache.pop(run.id, None)
+        self._set_dirty(); self.refresh()
+        self.statusBar().showMessage(f"Removed run from '{location.label}'; source file preserved", 7000)
+
+    def delete_grid_point(self):
+        rows = sorted({item.row() for item in self.location_table.selectedItems()})
+        if not rows: return
+        locations = [self.project.locations[row] for row in rows]
+        run_count = sum(len(location.runs) for location in locations)
+        detail = f" Its {run_count} run(s) will move to Run Lab." if run_count else ""
+        answer = QMessageBox.question(
+            self, "Delete grid point",
+            f"Delete {len(locations)} selected grid point(s)?{detail}",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes: return
+        ids = {location.id for location in locations}
+        for location in locations: self.project.loose_runs.extend(location.runs)
+        self.project.locations = [location for location in self.project.locations if location.id not in ids]
+        self._set_dirty(); self.refresh()
+        self.statusBar().showMessage(f"Deleted {len(locations)} grid point(s); mapped runs moved to Run Lab", 7000)
 
     def import_grid(self):
         path, _ = QFileDialog.getOpenFileName(self, "Import coordinate grid", "", "CSV (*.csv)")
@@ -452,6 +536,13 @@ class MainWindow(QMainWindow):
             normalized = 0 if not np.isfinite(mean) else (mean - low) / (high - low)
             spots.append({"pos": (loc.x_m * 100, loc.y_m * 100), "brush": pg.mkBrush(cmap.map(normalized)), "data": {"label": loc.label, "value": mean}})
         self.heat_scatter.setData(spots)
+        for label_item in self.heat_labels: self.heat_plot.removeItem(label_item)
+        self.heat_labels = []
+        if self.show_point_labels.isChecked():
+            for loc, _mean, _std in rows:
+                label_item = pg.TextItem(loc.label, color="#ffffff", anchor=(0, 1))
+                label_item.setPos(loc.x_m * 100 + 0.8, loc.y_m * 100 + 0.8)
+                self.heat_plot.addItem(label_item); self.heat_labels.append(label_item)
         valid = [(loc.x_m * 100, loc.y_m * 100, value) for loc, value, _ in rows if np.isfinite(value)]
         if len(valid) >= 2:
             points = np.asarray(valid); x_pad = max(np.ptp(points[:, 0]) * .03, 1.0); y_pad = max(np.ptp(points[:, 1]) * .03, 1.0)

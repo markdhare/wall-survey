@@ -11,12 +11,13 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QPaintDevice
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from wall_survey.metrics import Comparison
 from wall_survey.acquisition.base import AcquisitionResult, SweepSettings, VnaIdentity
 from wall_survey.model import Location, Run
 from wall_survey.touchstone import read_touchstone
+from wall_survey.acquisition_ui import AcquisitionDock
 from wall_survey.ui import LocationDialog, MainWindow
 
 
@@ -153,3 +154,39 @@ def test_standard_menus_and_project_title_are_present():
     assert [action.text().replace("&", "") for action in window.menuBar().actions()] == ["File", "Import", "Map", "View"]
     assert "Untitled wall survey" in window.windowTitle()
     window.close()
+
+
+def test_grid_capture_filename_includes_point_name():
+    assert AcquisitionDock.capture_filename_label("repeat 2", "next_empty", "R1C3") == "R1C3_repeat 2"
+    assert AcquisitionDock.capture_filename_label("repeat 2", "existing_location", "Door A") == "Door A_repeat 2"
+    assert AcquisitionDock.capture_filename_label("repeat 2", "run_lab", "") == "repeat 2"
+
+
+def test_mapped_run_can_be_removed_without_deleting_grid_point(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    run = Run(label="Shifted antenna", source=str(EXAMPLES / "example_baseline.s2p"))
+    location = Location(label="R1C1", x_m=.1, y_m=.2, runs=[run])
+    window.project.locations.append(location); window.refresh(); window.location_table.selectRow(0)
+    monkeypatch.setattr("wall_survey.ui.QMessageBox.question", lambda *args, **kwargs: QMessageBox.Yes)
+
+    window.delete_location_run()
+
+    assert not location.runs
+    assert location in window.project.locations
+    assert Path(run.source).exists()
+    window._set_dirty(False); window.close()
+
+
+def test_heatmap_point_name_toggle_creates_labels():
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.project.locations.append(Location(label="R1C1", x_m=.1, y_m=.2))
+    window.refresh()
+    assert not window.heat_labels
+
+    window.show_point_labels.setChecked(True)
+    app.processEvents()
+
+    assert [item.toPlainText() for item in window.heat_labels] == ["R1C1"]
+    window._set_dirty(False); window.close()
